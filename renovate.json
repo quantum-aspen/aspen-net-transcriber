@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "docker:pinDigests"],
+  "packageRules": [
+    {
+      "description": "Zoom changes break yt-dlp's extractor; take its releases promptly",
+      "matchPackageNames": ["yt-dlp"],
+      "automerge": false,
+      "minimumReleaseAge": "2 days"
+    }
+  ]
+}

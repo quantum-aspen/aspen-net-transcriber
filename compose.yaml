@@ -1,0 +1,26 @@
+# Local development. Production lives in aspen-net-deployments
+# (hosts/ncsa-01/transcriber), which pulls the published image instead.
+#
+#   cp .env.example .env    # fill in keys and settings
+#   docker compose up --build
+#   docker compose run --rm transcriber transcriber run --no-agent <zoom link>
+name: aspen-net-transcriber-dev
+
+services:
+  transcriber:
+    build:
+      context: .
+      additional_contexts:
+        # unpublished for now; remove this once the image clones it from GitHub
+        skills-repo: ../aspen-net-skills
+    image: aspen-net-transcriber:dev
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - data:/opt/data
+    mem_limit: 6g
+    cpus: 4
+
+volumes:
+  data:
