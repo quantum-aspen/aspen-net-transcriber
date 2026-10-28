@@ -283,3 +283,27 @@ def test_dry_run_gets_read_only_outline_and_it_doesnt_leak(tmp_path):
         hermes.write_config(Config.from_env(base | {"OUTLINE_API_KEY": ""}), home).read_text()
     )
     assert "outline" not in nokey["mcp_servers"]
+
+
+def test_outline_sends_a_named_user_agent(monkeypatch):
+    seen = {}
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"data": {"id": "x", "text": ""}}'
+
+    def fake_urlopen(req, timeout):
+        seen.update(req.header_items())
+        return Resp()
+
+    from transcriber import outline
+
+    monkeypatch.setattr(outline.urllib.request, "urlopen", fake_urlopen)
+    outline.Outline("https://wiki", SecretStr("k")).document("x")
+    assert seen["User-agent"].startswith("aspen-net-transcriber")

@@ -6,6 +6,10 @@ import urllib.request
 
 from pydantic import SecretStr
 
+# Cloudflare's browser integrity check rejects Python-urllib's default agent
+# (error 1010), so name ourselves.
+USER_AGENT = "aspen-net-transcriber (+https://github.com/quantum-aspen/aspen-net-transcriber)"
+
 
 class OutlineError(RuntimeError):
     pass
@@ -24,6 +28,7 @@ class Outline:
                 "Authorization": f"Bearer {self.api_key.get_secret_value()}",
                 "Content-Type": "application/json",
                 "Accept": "application/json",
+                "User-Agent": USER_AGENT,
             },
         )
         try:
