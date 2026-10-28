@@ -13,6 +13,7 @@ dependencies = [
     "yt-dlp==2026.6.9",
     # the service itself
     "pyyaml==6.0.3",
+    "pydantic==2.14.1",
 ]
 
 [project.scripts]

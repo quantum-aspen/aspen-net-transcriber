@@ -4,13 +4,15 @@ import json
 import urllib.error
 import urllib.request
 
+from pydantic import SecretStr
+
 
 class OutlineError(RuntimeError):
     pass
 
 
 class Outline:
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url: str, api_key: SecretStr):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
 
@@ -19,7 +21,7 @@ class Outline:
             f"{self.base_url}/api/{method}",
             data=json.dumps(body).encode(),
             headers={
-                "Authorization": f"Bearer {self.api_key}",
+                "Authorization": f"Bearer {self.api_key.get_secret_value()}",
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },

@@ -159,3 +159,10 @@ def test_sync_adopts_pasted_links(cfg):
     assert status(p, C) == "queued"
     assert p.state.get(C).series == "Weekly sync"
     assert f"- {C}" not in p.wiki.text
+
+
+def test_keys_stay_out_of_reprs(tmp_path):
+    c = Config.from_env({"OUTLINE_API_KEY": "ol-secret", "LUMEN_API_KEY": "lu-secret"})
+    assert "secret" not in repr(c) and "secret" not in str(c)
+    assert c.outline_api_key.get_secret_value() == "ol-secret"
+    assert "secret" not in repr(svc.Outline("https://x", c.outline_api_key).__dict__)

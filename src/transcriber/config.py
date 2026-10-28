@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import SecretStr
+
 
 def _hours(spec: str) -> tuple[int, int] | None:
     """Parses "22-6" into (22, 6). Empty means any time."""
@@ -17,10 +19,12 @@ def _hours(spec: str) -> tuple[int, int] | None:
 
 @dataclass(frozen=True)
 class Config:
+    # Keys are SecretStr so a logged or printed Config shows ********** instead.
     outline_url: str
-    outline_api_key: str
+    outline_api_key: SecretStr
     inbox_doc: str
     lumen_base_url: str
+    lumen_api_key: SecretStr
     lumen_model: str
     lumen_vision_model: str
     data_dir: Path
@@ -57,9 +61,10 @@ class Config:
         e = os.environ if env is None else env
         return cls(
             outline_url=e.get("OUTLINE_URL", "https://wiki.quantum-aspen.net").rstrip("/"),
-            outline_api_key=e.get("OUTLINE_API_KEY", ""),
+            outline_api_key=SecretStr(e.get("OUTLINE_API_KEY", "")),
             inbox_doc=e.get("INBOX_DOC", ""),
             lumen_base_url=e.get("LUMEN_BASE_URL", "https://lumen.ncsa.illinois.edu/v1").rstrip("/"),
+            lumen_api_key=SecretStr(e.get("LUMEN_API_KEY", "")),
             lumen_model=e.get("LUMEN_MODEL", ""),
             lumen_vision_model=e.get("LUMEN_VISION_MODEL", ""),
             data_dir=Path(e.get("TRANSCRIBER_DATA", "/opt/data/transcriber")),
@@ -78,7 +83,7 @@ class Config:
         if inbox:
             need |= {"OUTLINE_API_KEY": self.outline_api_key, "INBOX_DOC": self.inbox_doc}
         if agent:
-            need |= {"LUMEN_MODEL": self.lumen_model, "LUMEN_API_KEY": os.environ.get("LUMEN_API_KEY", "")}
+            need |= {"LUMEN_MODEL": self.lumen_model, "LUMEN_API_KEY": self.lumen_api_key}
             if not self.dry_run:
                 need |= {"OUTLINE_API_KEY": self.outline_api_key}
-        return [k for k, v in need.items() if not v]
+        return [k for k, v in need.items() if not (v.get_secret_value() if isinstance(v, SecretStr) else v)]
