@@ -150,3 +150,12 @@ def test_prompt_fills_every_placeholder(cfg, tmp_path):
     text = pipeline.prompt(cfg, A, "", wd).read_text()
     assert "$" not in text.replace("$workdir", "")
     assert A in text and str(wd) in text
+
+
+def test_sync_adopts_pasted_links(cfg):
+    C = "https://illinois.zoom.us/rec/share/CCC"
+    p = poller(cfg, f"Paste links:\n\n- {C} Weekly sync\n")
+    p.sync()
+    assert status(p, C) == "queued"
+    assert p.state.get(C).series == "Weekly sync"
+    assert f"- {C}" not in p.wiki.text

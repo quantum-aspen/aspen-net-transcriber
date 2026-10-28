@@ -46,8 +46,14 @@ class Poller:
             log.warning("couldn't update inbox status for %s: %s", url, e)
 
     def sync(self) -> None:
-        """Queue new and retried rows; re-show finished jobs whose status was cleared."""
-        for row in inbox.parse(self.wiki.document(self.cfg.inbox_doc)["text"]):
+        """Move pasted links into the queue table, queue new and retried rows, and
+        re-show finished jobs whose status was cleared."""
+        doc = self.wiki.document(self.cfg.inbox_doc)
+        text, adopted = inbox.adopt(doc["text"])
+        if text != doc["text"]:
+            self.wiki.update_text(doc["id"], text)
+            log.info("moved %d pasted link(s) into the queue table", len(adopted))
+        for row in inbox.parse(text):
             if not row.wants_run:
                 continue
             job = self.state.get(row.url)

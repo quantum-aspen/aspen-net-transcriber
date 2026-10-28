@@ -17,17 +17,24 @@ Lumen (zero data retention), and nothing else.
 
 ## The inbox
 
-Any table in the inbox doc with a **Status** column works:
+To add a recording, paste its Zoom share link into the inbox doc on its own line or bullet.
+To file the summary under a series, put the series name on the same line:
+
+- https://illinois.zoom.us/rec/share/…
+- https://illinois.zoom.us/rec/share/… Software stack meeting
+
+On its next poll (every 5 minutes) the service moves each line into the queue table at
+the bottom of the doc. It creates that table if needed:
 
 | Recording | Series | Status |
 |---|---|---|
-| https://illinois.zoom.us/rec/share/… | Software stack meeting | |
+| https://illinois.zoom.us/rec/share/… | Software stack meeting | queued |
 
-- Leave **Status** empty. The service sets it to `queued`, `working`, then
-  `done — [summary](…)` or `failed: <reason>`.
-- **Series** is optional. Give it to file the summary under that series page. If it's left
-  empty and the agent can't match one, the job fails rather than starting a new series.
-- To re-run a meeting, type `retry` into its Status.
+- **Status** goes from `queued` to `working`, then to `done — [summary](…)` or
+  `failed: <reason>`. Work happens within `RUN_HOURS` (22:00–06:00 by default).
+- **Series** is optional. Without it, the agent tries to match an existing series page.
+  If none matches, the job fails rather than starting a new series.
+- To re-run a meeting, type `retry` into its Status cell.
 - Failed jobs are retried once automatically (`MAX_ATTEMPTS`).
 
 During the meeting, attendees can type chat messages starting with `ai:` (`ai: screenshot`,
