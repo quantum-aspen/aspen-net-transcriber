@@ -237,3 +237,13 @@ def test_outline_network_errors_become_outline_errors():
     wiki = svc.Outline("http://127.0.0.1:9", SecretStr("k"))  # nothing listens on port 9
     with pytest.raises(OutlineError, match="documents.info"):
         wiki.document("x")
+
+
+def test_remote_asr_defaults_to_the_lumen_key(tmp_path, monkeypatch):
+    c = Config.from_env({"LUMEN_API_KEY": "lu", "TRANSCRIBE_URL": "https://x/v1"})
+    monkeypatch.delenv("TRANSCRIBE_URL", raising=False)
+    assert "TRANSCRIBE_API_KEY" not in pipeline._asr_env(c)  # local: no key passed
+    monkeypatch.setenv("TRANSCRIBE_URL", "https://x/v1")
+    assert pipeline._asr_env(c)["TRANSCRIBE_API_KEY"] == "lu"
+    monkeypatch.setenv("TRANSCRIBE_API_KEY", "own")
+    assert "TRANSCRIBE_API_KEY" not in pipeline._asr_env(c)  # its own key wins via the inherited env

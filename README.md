@@ -45,7 +45,12 @@ During the meeting, attendees can type chat messages starting with `ai:` (`ai: s
 
 ## Configuration
 
-All configuration is through env vars; see [`.env.example`](.env.example). Secrets are
+All configuration is through env vars; see [`.env.example`](.env.example).
+Transcription runs whisper locally unless `TRANSCRIBE_URL` points to an OpenAI-compatible
+server that returns `verbose_json` segment timestamps. In that case set `TRANSCRIBE_MODEL`
+too. `TRANSCRIBE_API_KEY` defaults to `LUMEN_API_KEY`. `TRANSCRIBE_PROMPT` gives either
+backend a vocabulary hint, and `TRANSCRIBE_THREADS` sets the local CPU threads (default 4).
+See the skill's `scripts/transcribe.py`. Secrets are
 `OUTLINE_API_KEY` (the Transcription Bot user's key) and `LUMEN_API_KEY`.
 
 State lives in the `/opt/data` volume:

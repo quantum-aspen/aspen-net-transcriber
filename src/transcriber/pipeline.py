@@ -42,6 +42,15 @@ def _run(cmd: list[str], wd: Path, env: dict | None = None, timeout: int = 3600)
         raise JobError(f"{name} exited {rc}:\n{tail}")
 
 
+def _asr_env(cfg: Config) -> dict:
+    """transcribe.py runs whisper locally unless TRANSCRIBE_URL names a server
+    (see the script). A remote server defaults to the Lumen key."""
+    env = {"HF_HOME": str(cfg.data_dir / "hf")}
+    if os.environ.get("TRANSCRIBE_URL") and not os.environ.get("TRANSCRIBE_API_KEY"):
+        env["TRANSCRIBE_API_KEY"] = cfg.lumen_api_key.get_secret_value()
+    return env
+
+
 def prepare(cfg: Config, url: str) -> Path:
     """Download, transcribe, and pull chat and frames. Returns the work dir."""
     wd = workdir(cfg, url)
@@ -55,7 +64,7 @@ def prepare(cfg: Config, url: str) -> Path:
         _run(
             [sys.executable, str(scripts / "transcribe.py"), "meeting.wav", "large-v3-turbo", "transcript"],
             wd,
-            env={"HF_HOME": str(cfg.data_dir / "hf")},
+            env=_asr_env(cfg),
             timeout=3 * 3600,
         )
 
