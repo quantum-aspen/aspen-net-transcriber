@@ -6,7 +6,7 @@
 #
 # Skills come from the `skills-repo` stage: a git clone of
 # quantum-aspen/aspen-net-skills at SKILLS_REF. To build against a local
-# checkout instead (e.g. while that repo is unpublished):
+# checkout instead (e.g. to try skill edits before pushing them):
 #   docker build --build-context skills-repo=../aspen-net-skills .
 
 ARG SKILLS_REF=main

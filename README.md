@@ -82,7 +82,7 @@ it. The skills are baked in read-only from `quantum-aspen/aspen-net-skills` at
 
 ```sh
 cp .env.example .env              # fill in
-docker compose build              # uses ../aspen-net-skills (see compose.yaml)
+docker compose build              # skills from GitHub main; see compose.yaml for a local checkout
 docker compose run --rm transcriber transcriber run --no-agent '<zoom link>'
 docker compose run --rm transcriber transcriber run '<zoom link>'   # DRY_RUN=1 to keep it off the wiki
 docker compose up                 # the poller

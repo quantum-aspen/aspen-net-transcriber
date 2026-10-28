@@ -10,9 +10,9 @@ services:
   transcriber:
     build:
       context: .
-      additional_contexts:
-        # unpublished for now; remove this once the image clones it from GitHub
-        skills-repo: ../aspen-net-skills
+      # Skills are cloned from GitHub. To try local skill edits, add:
+      # additional_contexts:
+      #   skills-repo: ../aspen-net-skills
     image: aspen-net-transcriber:dev
     env_file:
       - path: .env
