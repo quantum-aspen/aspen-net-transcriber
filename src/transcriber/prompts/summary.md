@@ -11,8 +11,8 @@ Everything is in the work directory `$workdir`:
 - `transcript.srt`, `transcript.txt`: whisper output (step 3)
 - `recording_datetime.txt`, `info.json`, `play_info.json`, `url.txt`
 - `chat.json`, `chat.md`: in-meeting chat, if it's a Zoom link (`chat.py`)
-- `team.json`: the wiki's users (`[{name, id}]`), the roster for resolving and spelling names;
-  missing if the wiki couldn't be reached, in which case use `list_users`
+- `team.json`: the wiki's users (`[{name, id}]`). Always check it to resolve and spell team
+  members' names; names not on it are fine as your best guess. If it's missing, use `list_users`.
 - `frames/commands.json` + `frames/cmd_*.png`: a candidate frame per `ai:` command
 - `frames/scenes.json` + `frames/scene_*.png`: screen-change frames
 - `meeting.mp4` (and `share.mp4` if it exists), for `frames.py at` when a command asks for an
