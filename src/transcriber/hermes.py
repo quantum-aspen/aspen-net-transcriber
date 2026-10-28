@@ -11,6 +11,7 @@ from pathlib import Path
 
 import yaml
 
+from . import proc
 from .config import Config
 
 
@@ -89,8 +90,4 @@ def run(cfg: Config, prompt: Path, workdir: Path, log: Path) -> int:
         "MEETING_UNATTENDED": "1",
         "MEETING_TOOLS_DIR": str(cfg.data_dir / "tools"),
     }
-    with log.open("ab") as out:
-        return subprocess.run(
-            cmd, cwd=workdir, env=env, stdout=out, stderr=subprocess.STDOUT,
-            timeout=cfg.agent_budget + 300,
-        ).returncode  # fmt: skip
+    return proc.run(cmd, cwd=workdir, log_file=log, tag=workdir.name, env=env, timeout=cfg.agent_budget + 300)

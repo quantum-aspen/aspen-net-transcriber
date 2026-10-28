@@ -31,6 +31,8 @@ class Outline:
                 return json.load(r)["data"]
         except urllib.error.HTTPError as e:
             raise OutlineError(f"{method}: HTTP {e.code} {e.read()[:300]!r}") from e
+        except (OSError, ValueError, KeyError) as e:  # network down, timeout, or a garbled reply
+            raise OutlineError(f"{method}: {type(e).__name__}: {e}") from e
 
     def document(self, doc_id: str) -> dict:
         """Accepts a document UUID or the url id at the end of a doc link."""

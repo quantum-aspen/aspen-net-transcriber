@@ -31,11 +31,13 @@ the bottom of the doc. It creates that table if needed:
 | https://illinois.zoom.us/rec/share/… | Software stack meeting | queued |
 
 - **Status** goes from `queued` to `working`, then to `done — [summary](…)` or
-  `failed: <reason>`. Work happens within `RUN_HOURS` (22:00–06:00 by default).
+  `failed: <reason>`. Jobs only start within `RUN_HOURS` (any time if unset; the deployment sets it).
 - **Series** is optional. Without it, the agent tries to match an existing series page.
   If none matches, the job fails rather than starting a new series.
 - To re-run a meeting, type `retry` into its Status cell.
-- Failed jobs are retried once automatically (`MAX_ATTEMPTS`).
+- Failed jobs are retried automatically with exponential backoff: 15 min, 30 min, then 1 h
+  (`RETRY_BASE_SECONDS`, `MAX_ATTEMPTS`=4). A restart or redeploy mid-job doesn't use up an
+  attempt. The job resumes from its last finished step.
 
 During the meeting, attendees can type chat messages starting with `ai:` (`ai: screenshot`,
 `ai: note …`, `ai: off record` … `ai: on record`). See the skill's
@@ -55,6 +57,11 @@ State lives in the `/opt/data` volume:
 | `transcriber/work/<id>/` | in-progress jobs; media is deleted when a job finishes |
 | `transcriber/hf/` | the whisper model (~1.6 GB, downloaded on first run; safe to delete) |
 | everything else | Hermes' own home (config, sessions, logs) |
+
+Logs go to stdout. Output from the pipeline steps and the agent is included, tagged
+`[<job id>]` (the job's work-dir name). The same output is also kept in the job's
+`pipeline.log` and `agent.log` until the job finishes. `RUN_HOURS` uses the container's
+clock, so set `TZ` in the deployment, e.g. `TZ=America/Denver`.
 
 ## Development
 

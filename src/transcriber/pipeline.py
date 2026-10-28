@@ -11,13 +11,12 @@ import json
 import logging
 import os
 import shutil
-import subprocess
 import sys
 from importlib.resources import files
 from pathlib import Path
 from string import Template
 
-from . import hermes
+from . import hermes, proc
 from .config import Config
 
 log = logging.getLogger(__name__)
@@ -33,11 +32,10 @@ def workdir(cfg: Config, url: str) -> Path:
 
 
 def _run(cmd: list[str], wd: Path, env: dict | None = None, timeout: int = 3600) -> None:
-    log.info("$ %s", " ".join(cmd))
-    with (wd / "pipeline.log").open("ab") as out:
-        rc = subprocess.run(
-            cmd, cwd=wd, env=os.environ | (env or {}), stdout=out, stderr=subprocess.STDOUT, timeout=timeout
-        ).returncode
+    log.info("[%s] $ %s", wd.name, " ".join(cmd))
+    rc = proc.run(
+        cmd, cwd=wd, log_file=wd / "pipeline.log", tag=wd.name, env=os.environ | (env or {}), timeout=timeout
+    )
     if rc:
         name = Path(cmd[1]).name if cmd[0] in ("sh", sys.executable) else cmd[0]
         tail = (wd / "pipeline.log").read_text(errors="replace")[-1500:]

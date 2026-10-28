@@ -1,7 +1,9 @@
+import time
 from datetime import datetime
 
 import pytest
 import yaml
+from pydantic import SecretStr
 
 from transcriber import __main__ as svc
 from transcriber import hermes, inbox, pipeline
@@ -46,16 +48,41 @@ def status(p, url):
     return next(r.status for r in inbox.parse(p.wiki.text) if r.url == url)
 
 
-def test_state_attempts_then_failed(tmp_path):
+def test_state_backs_off_exponentially_then_fails(tmp_path):
     s = State(tmp_path / "s.db")
     s.enqueue(A, "x")
+    delays = []
+    for _ in range(3):
+        s.start(A)
+        before = time.time()
+        job = s.fail(A, "boom", max_attempts=4, base_delay=900)
+        assert job.state == "queued"
+        assert s.next_queued(now=job.not_before - 1) is None
+        assert s.next_queued(now=job.not_before).url == A
+        delays.append(round(job.not_before - before, -1))
+    assert delays == [900, 1800, 3600]
     s.start(A)
-    assert s.fail(A, "boom", max_attempts=2) == "queued"
-    s.start(A)
-    assert s.fail(A, "boom", max_attempts=2) == "failed"
+    assert s.fail(A, "boom", max_attempts=4, base_delay=900).state == "failed"
     s.enqueue(A, "x")  # plain enqueue doesn't resurrect it
     assert s.get(A).state == "failed"
     s.enqueue(A, "x", retry=True)
+    assert (s.get(A).state, s.get(A).attempts, s.get(A).not_before) == ("queued", 0, 0)
+
+
+def test_backoff_is_capped(tmp_path):
+    s = State(tmp_path / "s.db")
+    s.enqueue(A, "")
+    for _ in range(10):
+        s.start(A)
+        job = s.fail(A, "boom", max_attempts=99, base_delay=900)
+    assert job.not_before - time.time() <= 6 * 3600
+
+
+def test_release_does_not_use_up_the_attempt(tmp_path):
+    s = State(tmp_path / "s.db")
+    s.enqueue(A, "")
+    s.start(A)
+    s.release(A)
     assert (s.get(A).state, s.get(A).attempts) == ("queued", 0)
 
 
@@ -117,8 +144,11 @@ def test_work_failure_retries_then_fails(cfg, monkeypatch):
 
     monkeypatch.setattr(pipeline, "prepare", boom)
     p.work()
-    assert status(p, A) == "queued (retrying)"
-    p.work()
+    assert status(p, A).startswith("queued (attempt 2 after ")
+    assert p.work() is False  # backing off
+    for _ in range(cfg.max_attempts - 1):
+        p.state.db.execute("UPDATE jobs SET not_before = 0")
+        p.work()
     assert p.state.get(A).state == "failed"
     assert status(p, A) == "failed: fetch.sh exited 1:"
 
@@ -166,3 +196,44 @@ def test_keys_stay_out_of_reprs(tmp_path):
     assert "secret" not in repr(c) and "secret" not in str(c)
     assert c.outline_api_key.get_secret_value() == "ol-secret"
     assert "secret" not in repr(svc.Outline("https://x", c.outline_api_key).__dict__)
+
+
+def test_shutdown_mid_job_releases_it(cfg, monkeypatch):
+    p = poller(cfg)
+    p.sync()
+
+    def stopped(c, url):
+        raise svc.Shutdown("SIGTERM")
+
+    monkeypatch.setattr(pipeline, "prepare", stopped)
+    with pytest.raises(svc.Shutdown):
+        p.work()
+    assert (p.state.get(A).state, p.state.get(A).attempts) == ("queued", 0)
+    assert status(p, A) == "queued (interrupted by a restart)"
+
+
+def test_loop_survives_errors(cfg, monkeypatch):
+    p = poller(cfg)
+    calls = []
+
+    def broken_sync():
+        calls.append("sync")
+        raise RuntimeError("bug")
+
+    def stop(_):
+        raise svc.Shutdown("test")
+
+    monkeypatch.setattr(p, "sync", broken_sync)
+    monkeypatch.setattr(p, "work", lambda: (_ for _ in ()).throw(ValueError("bug")))
+    monkeypatch.setattr(svc.time, "sleep", stop)
+    with pytest.raises(svc.Shutdown):
+        p.loop()
+    assert calls == ["sync"]
+
+
+def test_outline_network_errors_become_outline_errors():
+    from transcriber.outline import OutlineError
+
+    wiki = svc.Outline("http://127.0.0.1:9", SecretStr("k"))  # nothing listens on port 9
+    with pytest.raises(OutlineError, match="documents.info"):
+        wiki.document("x")

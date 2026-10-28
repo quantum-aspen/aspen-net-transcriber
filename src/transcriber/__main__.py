@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import signal
 import sys
 import threading
 import time
@@ -13,6 +14,14 @@ from .outline import Outline, OutlineError
 from .state import State
 
 log = logging.getLogger("transcriber")
+
+
+class Shutdown(BaseException):  # noqa: N818 — BaseException so `except Exception` doesn't swallow it
+    """Raised in the main thread on SIGTERM/SIGINT (docker stop, redeploys)."""
+
+
+def _on_signal(signum, _frame):
+    raise Shutdown(signal.Signals(signum).name)
 
 
 def in_window(hours: tuple[int, int] | None, now: datetime | None = None) -> bool:
@@ -79,12 +88,22 @@ class Poller:
         try:
             pipeline.prepare(self.cfg, job.url)
             result = pipeline.summarise(self.cfg, job.url, job.series, wd)
+        except Shutdown:
+            # Stopped, not broken: requeue without using up the attempt; the steps
+            # already done are kept and skipped next time.
+            log.info("shutting down; released %s", job.url)
+            self.state.release(job.url)
+            self.show(job.url, "queued (interrupted by a restart)")
+            raise
         except Exception as e:  # noqa: BLE001 — any failure is reported on the row and retried
             log.exception("job failed: %s", job.url)
-            new = self.state.fail(job.url, str(e), self.cfg.max_attempts)
-            first_line = str(e).splitlines()[0][:200] if str(e) else type(e).__name__
-            self.show(job.url, "queued (retrying)" if new == "queued" else f"failed: {first_line}")
-            if new == "failed":
+            job = self.state.fail(job.url, str(e), self.cfg.max_attempts, self.cfg.retry_base)
+            if job.state == "queued":
+                at = datetime.fromtimestamp(job.not_before).strftime("%H:%M")
+                self.show(job.url, f"queued (attempt {job.attempts + 1} after {at})")
+            else:
+                first_line = str(e).splitlines()[0][:200] if str(e) else type(e).__name__
+                self.show(job.url, f"failed: {first_line}")
                 pipeline.clean(wd, everything=False)
             return True
         self.state.finish(job.url, result["wiki_url"])
@@ -99,10 +118,15 @@ class Poller:
         while True:
             try:
                 self.sync()
-                while in_window(self.cfg.run_hours) and self.work():
-                    pass
             except OutlineError as e:
                 log.warning("inbox unavailable: %s", e)
+            except Exception:  # noqa: BLE001 — keep polling; queued jobs can still run
+                log.exception("inbox sync failed")
+            try:
+                while in_window(self.cfg.run_hours) and self.work():
+                    pass
+            except Exception:  # noqa: BLE001 — a bug outside a job's own try; don't die
+                log.exception("job loop failed")
             time.sleep(self.cfg.poll_interval)
 
 
@@ -128,8 +152,13 @@ def main(argv: list[str] | None = None) -> int:
         log.info("hermes config: %s", hermes.write_config(cfg))
 
     if a.cmd == "serve":
+        signal.signal(signal.SIGTERM, _on_signal)
+        signal.signal(signal.SIGINT, _on_signal)
         threading.Thread(target=_heartbeat, args=(cfg,), daemon=True).start()
-        Poller(cfg).loop()
+        try:
+            Poller(cfg).loop()
+        except Shutdown as e:
+            log.info("stopped by %s", e)
         return 0
 
     wd = pipeline.prepare(cfg, a.url)

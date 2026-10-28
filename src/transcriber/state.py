@@ -1,8 +1,10 @@
 """Job state in SQLite. The inbox Status column is only a display of this.
 
 A job is keyed by its recording URL. States: queued -> working -> done | failed.
-`working` rows found at startup were interrupted (container restart) and go
-back to queued; they still count against max_attempts.
+A failed attempt is re-queued with exponential backoff (not_before) until
+max_attempts. A job stopped by a graceful shutdown is released without using
+up the attempt. `working` rows found at startup were killed hard (OOM,
+SIGKILL), so that attempt still counts: a job can't crash the service forever.
 """
 
 import sqlite3
@@ -10,6 +12,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+MAX_DELAY = 6 * 3600
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
     url        TEXT PRIMARY KEY,
@@ -18,6 +21,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     attempts   INTEGER NOT NULL DEFAULT 0,
     wiki_url   TEXT NOT NULL DEFAULT '',
     error      TEXT NOT NULL DEFAULT '',
+    not_before REAL NOT NULL DEFAULT 0,
     created    REAL NOT NULL,
     updated    REAL NOT NULL
 )
@@ -32,6 +36,7 @@ class Job:
     attempts: int
     wiki_url: str
     error: str
+    not_before: float
 
 
 class State:
@@ -57,13 +62,17 @@ class State:
         )
         if retry:
             self.db.execute(
-                "UPDATE jobs SET state = 'queued', attempts = 0, error = '', series = ?, updated = ? "
-                "WHERE url = ? AND state IN ('done', 'failed')",
+                "UPDATE jobs SET state = 'queued', attempts = 0, error = '', not_before = 0, "
+                "series = ?, updated = ? WHERE url = ? AND state IN ('done', 'failed')",
                 (series, now, url),
             )
 
-    def next_queued(self) -> Job | None:
-        row = self.db.execute("SELECT * FROM jobs WHERE state = 'queued' ORDER BY created LIMIT 1").fetchone()
+    def next_queued(self, now: float | None = None) -> Job | None:
+        """The oldest queued job whose backoff has passed."""
+        row = self.db.execute(
+            "SELECT * FROM jobs WHERE state = 'queued' AND not_before <= ? ORDER BY created LIMIT 1",
+            (time.time() if now is None else now,),
+        ).fetchone()
         return self._job(row)
 
     def start(self, url: str) -> None:
@@ -78,15 +87,28 @@ class State:
             (wiki_url, time.time(), url),
         )
 
-    def fail(self, url: str, error: str, max_attempts: int) -> str:
-        """Back to queued if attempts remain, else failed. Returns the new state."""
+    def fail(self, url: str, error: str, max_attempts: int, base_delay: float) -> Job:
+        """Back to queued if attempts remain, after base_delay * 2^(attempts-1)
+        (capped at 6 h), else failed. Returns the updated job."""
         job = self.get(url)
-        new = "queued" if job and job.attempts < max_attempts else "failed"
+        now = time.time()
+        if job and job.attempts < max_attempts:
+            new, not_before = "queued", now + min(base_delay * 2 ** (job.attempts - 1), MAX_DELAY)
+        else:
+            new, not_before = "failed", 0
         self.db.execute(
-            "UPDATE jobs SET state = ?, error = ?, updated = ? WHERE url = ?",
-            (new, error[:2000], time.time(), url),
+            "UPDATE jobs SET state = ?, error = ?, not_before = ?, updated = ? WHERE url = ?",
+            (new, error[:2000], not_before, now, url),
         )
-        return new
+        return self.get(url)
+
+    def release(self, url: str) -> None:
+        """Put a job interrupted by a graceful shutdown back, without using up the attempt."""
+        self.db.execute(
+            "UPDATE jobs SET state = 'queued', attempts = MAX(attempts - 1, 0), updated = ? "
+            "WHERE url = ? AND state = 'working'",
+            (time.time(), url),
+        )
 
     def recover(self) -> int:
         """Re-queue jobs left `working` by a restart."""

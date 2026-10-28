@@ -32,6 +32,7 @@ class Config:
     poll_interval: int
     run_hours: tuple[int, int] | None
     max_attempts: int
+    retry_base: int
     agent_max_turns: int
     agent_budget: int
     dry_run: bool
@@ -71,7 +72,8 @@ class Config:
             skills_dir=Path(e.get("SKILLS_DIR", "/opt/transcriber/skills")),
             poll_interval=int(e.get("POLL_INTERVAL", "300")),
             run_hours=_hours(e.get("RUN_HOURS", "")),
-            max_attempts=int(e.get("MAX_ATTEMPTS", "2")),
+            max_attempts=int(e.get("MAX_ATTEMPTS", "4")),
+            retry_base=int(e.get("RETRY_BASE_SECONDS", "900")),
             agent_max_turns=int(e.get("AGENT_MAX_TURNS", "90")),
             agent_budget=int(e.get("AGENT_BUDGET_SECONDS", "2700")),
             dry_run=e.get("DRY_RUN", "") not in ("", "0", "false"),
