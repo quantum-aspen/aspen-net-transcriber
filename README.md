@@ -34,6 +34,12 @@ the bottom of the doc. It creates that table if needed:
   `failed: <reason>`. Jobs only start within `RUN_HOURS` (any time if unset; the deployment sets it).
 - **Series** is optional. Without it, the agent tries to match an existing series page.
   If none matches, the job fails rather than starting a new series.
+- **Passcodes:** if the recording has one, add `passcode: <code>` anywhere on the line.
+  The service takes it off the line before copying the line into the table, keeps it only in
+  its job database, and gives it only to the download step (as `ZOOM_PASSCODE`). A job that
+  fails for a missing or wrong passcode fails at once, with no retries. Pasting the link
+  again with the passcode re-queues it. The passcode is visible on the wiki, and in the
+  doc's history, until the next poll, so it doesn't keep the recording from wiki members.
 - To re-run a meeting, type `retry` into its Status cell.
 - Failed jobs are retried automatically with exponential backoff: 15 min, 30 min, then 1 h
   (`RETRY_BASE_SECONDS`, `MAX_ATTEMPTS`=4). A restart or redeploy mid-job doesn't use up an
@@ -87,6 +93,7 @@ it. The skills are baked in read-only from `quantum-aspen/aspen-net-skills` at
 cp .env.example .env              # fill in
 docker compose build              # skills from GitHub main; see compose.yaml for a local checkout
 docker compose run --rm transcriber transcriber run --no-agent '<zoom link>'
+docker compose run --rm -e ZOOM_PASSCODE transcriber transcriber run --no-agent '<zoom link>'   # with a passcode, from your env
 docker compose run --rm transcriber transcriber run '<zoom link>'   # DRY_RUN=1 to keep it off the wiki
 docker compose up                 # the poller
 ```

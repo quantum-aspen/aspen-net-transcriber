@@ -56,7 +56,8 @@ class Poller:
 
     def sync(self) -> None:
         """Move pasted links into the queue table, queue new and retried rows, and
-        re-show finished jobs whose status was cleared."""
+        re-show finished jobs whose status was cleared. A passcode pasted with a link
+        is stored, and re-queues the job if it had failed."""
         doc = self.wiki.document(self.cfg.inbox_doc)
         text, adopted = inbox.adopt(doc["text"])
         if text != doc["text"]:
@@ -75,6 +76,14 @@ class Poller:
             self.state.enqueue(row.url, row.series, retry=retry)
             log.info("queued %s", row.url)
             self.show(row.url, "queued")
+        for url, passcode in adopted.items():
+            if not (passcode and self.state.set_passcode(url, passcode)):
+                continue
+            log.info("got a passcode for %s", url)
+            job = self.state.get(url)
+            if job and job.state == "failed":  # likely failed for want of it
+                self.state.enqueue(url, job.series, retry=True)
+                self.show(url, "queued")
 
     def work(self) -> bool:
         """Runs the next queued job, if any. Returns whether there was one."""
@@ -86,7 +95,7 @@ class Poller:
         log.info("working on %s (attempt %d)", job.url, job.attempts + 1)
         wd = pipeline.workdir(self.cfg, job.url)
         try:
-            pipeline.prepare(self.cfg, job.url)
+            pipeline.prepare(self.cfg, job.url, job.passcode)
             result = pipeline.summarise(self.cfg, job.url, job.series, wd)
         except Shutdown:
             # Stopped, not broken: requeue without using up the attempt; the steps
@@ -97,7 +106,9 @@ class Poller:
             raise
         except Exception as e:  # noqa: BLE001 — any failure is reported on the row and retried
             log.exception("job failed: %s", job.url)
-            job = self.state.fail(job.url, str(e), self.cfg.max_attempts, self.cfg.retry_base)
+            # A missing or wrong passcode fails now: retrying can't fix it.
+            attempts = 0 if isinstance(e, pipeline.NeedsPasscode) else self.cfg.max_attempts
+            job = self.state.fail(job.url, str(e), attempts, self.cfg.retry_base)
             if job.state == "queued":
                 at = datetime.fromtimestamp(job.not_before).strftime("%H:%M")
                 self.show(job.url, f"queued (attempt {job.attempts + 1} after {at})")

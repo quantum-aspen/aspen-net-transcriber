@@ -5,11 +5,14 @@ A failed attempt is re-queued with exponential backoff (not_before) until
 max_attempts. A job stopped by a graceful shutdown is released without using
 up the attempt. `working` rows found at startup were killed hard (OOM,
 SIGKILL), so that attempt still counts: a job can't crash the service forever.
+
+A recording's Zoom passcode, if it has one, is kept here only. The inbox
+drops it from the doc, and it never goes in a log or a job's command line.
 """
 
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 MAX_DELAY = 6 * 3600
@@ -22,10 +25,13 @@ CREATE TABLE IF NOT EXISTS jobs (
     wiki_url   TEXT NOT NULL DEFAULT '',
     error      TEXT NOT NULL DEFAULT '',
     not_before REAL NOT NULL DEFAULT 0,
+    passcode   TEXT NOT NULL DEFAULT '',
     created    REAL NOT NULL,
     updated    REAL NOT NULL
 )
 """
+# Columns added since the first release, for databases created before them.
+MIGRATIONS = {"passcode": "ALTER TABLE jobs ADD COLUMN passcode TEXT NOT NULL DEFAULT ''"}
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,7 @@ class Job:
     wiki_url: str
     error: str
     not_before: float
+    passcode: str = field(default="", repr=False)
 
 
 class State:
@@ -45,6 +52,10 @@ class State:
         self.db = sqlite3.connect(path, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.execute(SCHEMA)
+        have = {r["name"] for r in self.db.execute("PRAGMA table_info(jobs)")}
+        for column, sql in MIGRATIONS.items():
+            if column not in have:
+                self.db.execute(sql)
 
     def _job(self, row) -> Job | None:
         return Job(**{k: row[k] for k in Job.__dataclass_fields__}) if row else None
@@ -66,6 +77,15 @@ class State:
                 "series = ?, updated = ? WHERE url = ? AND state IN ('done', 'failed')",
                 (series, now, url),
             )
+
+    def set_passcode(self, url: str, passcode: str) -> bool:
+        """Stores url's passcode. Returns whether it changed."""
+        return bool(
+            self.db.execute(
+                "UPDATE jobs SET passcode = ?, updated = ? WHERE url = ? AND passcode != ?",
+                (passcode, time.time(), url, passcode),
+            ).rowcount
+        )
 
     def next_queued(self, now: float | None = None) -> Job | None:
         """The oldest queued job whose backoff has passed."""

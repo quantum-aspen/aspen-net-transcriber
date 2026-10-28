@@ -28,6 +28,14 @@ class JobError(RuntimeError):
     pass
 
 
+REPASTE = "paste the link again with `passcode: …` on the same line"
+
+
+class NeedsPasscode(JobError):
+    """The recording's passcode is missing or wrong. Retrying won't help until
+    someone pastes the link again with the right one."""
+
+
 def workdir(cfg: Config, url: str) -> Path:
     return cfg.work_dir / hashlib.sha256(url.encode()).hexdigest()[:12]
 
@@ -52,14 +60,28 @@ def _asr_env(cfg: Config) -> dict:
     return env
 
 
-def prepare(cfg: Config, url: str) -> Path:
-    """Download, transcribe, and pull chat and frames. Returns the work dir."""
+def prepare(cfg: Config, url: str, passcode: str = "") -> Path:
+    """Download, transcribe, and pull chat and frames. Returns the work dir.
+
+    The passcode goes to fetch.sh as ZOOM_PASSCODE, and to nothing else."""
     wd = workdir(cfg, url)
     wd.mkdir(parents=True, exist_ok=True)
     scripts = cfg.skill_dir / "scripts"
 
     if not (wd / "meeting.wav").exists() and not (wd / "transcript.srt").exists():
-        _run(["sh", str(scripts / "fetch.sh"), url, str(wd)], wd, timeout=2400)
+        try:
+            _run(
+                ["sh", str(scripts / "fetch.sh"), url, str(wd)],
+                wd,
+                env={"ZOOM_PASSCODE": passcode} if passcode else None,
+                timeout=2400,
+            )
+        except JobError as e:
+            if "needs a passcode" in str(e):
+                raise NeedsPasscode(f"needs a passcode: {REPASTE}") from e
+            if "rejected the passcode" in str(e):
+                raise NeedsPasscode(f"wrong passcode: {REPASTE}") from e
+            raise
 
     if not (wd / "transcript.srt").exists():
         _run(

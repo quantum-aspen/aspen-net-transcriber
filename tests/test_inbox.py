@@ -62,7 +62,7 @@ Z2 = "https://illinois.zoom.us/rec/share/X_y.z"
 def test_adopt_creates_table_from_a_plain_list():
     doc = f"Paste Zoom links below.\n\n- {Z1}\n- [{Z2}]({Z2}) Software stack meeting\n- a note\n"
     out, adopted = inbox.adopt(doc)
-    assert adopted == [Z1, Z2]
+    assert adopted == {Z1: "", Z2: ""}
     assert out == (
         "Paste Zoom links below.\n\n- a note\n\n"
         "| Recording | Series | Status |\n|---|---|---|\n"
@@ -71,12 +71,12 @@ def test_adopt_creates_table_from_a_plain_list():
     assert [(r.url, r.series, r.wants_run) for r in inbox.parse(out)] == [
         (Z1, "", True), (Z2, "Software stack meeting", True),
     ]  # fmt: skip
-    assert inbox.adopt(out) == (out, [])
+    assert inbox.adopt(out) == (out, {})
 
 
 def test_adopt_appends_to_existing_table_and_drops_duplicates():
     out, adopted = inbox.adopt(DOC + f"\n* Software stack meeting — <{Z2}>\n{Z1}\n")
-    assert adopted == [Z2]
+    assert adopted == {Z2: "", Z1: ""}  # Z1 was already queued; returned, not re-added
     rows = inbox.parse(out)
     assert rows[3].url == Z2 and rows[3].series == "Software stack meeting"
     assert out.count(Z1) == 1
@@ -101,10 +101,35 @@ def test_adopt_series_from_the_rest_of_the_line(line, series):
 
 def test_adopt_unescapes_outline_escapes():
     out, adopted = inbox.adopt(f"- [{Z2.replace('_', chr(92) + '_')}]({Z2})\n")
-    assert adopted == [Z2]
+    assert list(adopted) == [Z2]
     assert inbox.set_status(out, Z2, "queued") != out
 
 
 def test_adopt_skips_code_blocks():
     doc = f"```\n{Z1}\n```\n"
-    assert inbox.adopt(doc) == (doc, [])
+    assert inbox.adopt(doc) == (doc, {})
+
+
+@pytest.mark.parametrize(
+    "line,passcode,series",
+    [
+        (f"- {Z1} passcode: TrTf.U9n", "TrTf.U9n", ""),
+        (f"- {Z1} Passcode: TrTf.U9n Software stack meeting", "TrTf.U9n", "Software stack meeting"),
+        (f"Weekly sync {Z1} PASSWORD: a1\\_b2", "a1_b2", "Weekly sync"),
+        (f"- {Z1} passcode: `x*y`", "x*y", ""),
+        (f"- {Z1} no code here", "", "no code here"),
+    ],
+)
+def test_adopt_takes_the_passcode_off_the_line(line, passcode, series):
+    out, adopted = inbox.adopt(line + "\n")
+    assert adopted == {Z1: passcode}
+    assert inbox.parse(out)[0].series == series
+    if passcode:
+        assert passcode not in out and "asscode" not in out.lower().replace("passcode: …", "")
+
+
+def test_adopt_returns_the_passcode_of_an_already_queued_link():
+    out, _ = inbox.adopt(f"- {Z1}\n")
+    out2, adopted = inbox.adopt(out + f"- {Z1} passcode: abc\n")
+    assert adopted == {Z1: "abc"}
+    assert out2.count(Z1) == 1 and "abc" not in out2

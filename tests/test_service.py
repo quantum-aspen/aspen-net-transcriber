@@ -128,7 +128,7 @@ def test_sync_queues_only_rows_that_want_a_run(cfg):
 def test_work_success_marks_done_and_links(cfg, monkeypatch):
     p = poller(cfg)
     p.sync()
-    monkeypatch.setattr(pipeline, "prepare", lambda c, url: None)
+    monkeypatch.setattr(pipeline, "prepare", lambda c, url, passcode="": None)
     monkeypatch.setattr(pipeline, "summarise", lambda c, url, series, wd: {"wiki_url": "https://wiki/doc/x"})
     assert p.work() is True
     assert p.state.get(A).state == "done"
@@ -140,7 +140,7 @@ def test_work_failure_retries_then_fails(cfg, monkeypatch):
     p = poller(cfg)
     p.sync()
 
-    def boom(c, url):
+    def boom(c, url, passcode=""):
         raise pipeline.JobError("fetch.sh exited 1:\nHTTP 404")
 
     monkeypatch.setattr(pipeline, "prepare", boom)
@@ -203,7 +203,7 @@ def test_shutdown_mid_job_releases_it(cfg, monkeypatch):
     p = poller(cfg)
     p.sync()
 
-    def stopped(c, url):
+    def stopped(c, url, passcode=""):
         raise svc.Shutdown("SIGTERM")
 
     monkeypatch.setattr(pipeline, "prepare", stopped)
@@ -307,3 +307,74 @@ def test_outline_sends_a_named_user_agent(monkeypatch):
     monkeypatch.setattr(outline.urllib.request, "urlopen", fake_urlopen)
     outline.Outline("https://wiki", SecretStr("k")).document("x")
     assert seen["User-agent"].startswith("aspen-net-transcriber")
+
+
+C = "https://illinois.zoom.us/rec/share/CCC"
+
+
+def test_passcode_is_stored_not_shown_and_passed_to_prepare(cfg, monkeypatch):
+    p = poller(cfg, f"- {C} passcode: s3cr3t Weekly sync\n")
+    p.sync()
+    assert "s3cr3t" not in p.wiki.text
+    job = p.state.get(C)
+    assert job.passcode == "s3cr3t" and job.series == "Weekly sync"
+    assert "s3cr3t" not in repr(job)
+    seen = {}
+    monkeypatch.setattr(pipeline, "prepare", lambda c, url, passcode="": seen.setdefault("pc", passcode))
+    monkeypatch.setattr(pipeline, "summarise", lambda c, url, series, wd: {"wiki_url": "https://wiki/doc/x"})
+    p.work()
+    assert seen["pc"] == "s3cr3t"
+
+
+def test_missing_passcode_fails_at_once_and_a_repaste_requeues(cfg, monkeypatch):
+    p = poller(cfg, f"- {C}\n")
+    p.sync()
+
+    def needs(c, url, passcode=""):
+        raise pipeline.NeedsPasscode(f"needs a passcode: {pipeline.REPASTE}")
+
+    monkeypatch.setattr(pipeline, "prepare", needs)
+    p.work()
+    assert p.state.get(C).state == "failed"  # no retries: they can't help
+    assert status(p, C).startswith("failed: needs a passcode")
+
+    p.wiki.text += f"- {C} passcode: abc\n"
+    p.sync()
+    assert p.state.get(C).state == "queued" and p.state.get(C).passcode == "abc"
+    assert status(p, C) == "queued" and "abc" not in p.wiki.text
+
+
+def test_prepare_passes_the_passcode_to_fetch_only(cfg, monkeypatch):
+    calls = []
+
+    def fake_run(cmd, wd, env=None, timeout=0):
+        calls.append((cmd, env))
+        if cmd[1].endswith("fetch.sh"):
+            (wd / "meeting.wav").write_bytes(b"")
+            (wd / "transcript.srt").write_text("")
+
+    monkeypatch.setattr(pipeline, "_run", fake_run)
+    pipeline.prepare(cfg, C, "s3cr3t")
+    fetch_cmd, fetch_env = calls[0]
+    assert fetch_env == {"ZOOM_PASSCODE": "s3cr3t"}
+    assert all("s3cr3t" not in " ".join(cmd) for cmd, _ in calls)
+    assert all(env is None or "ZOOM_PASSCODE" not in env for _, env in calls[1:])
+
+
+def test_state_adds_passcode_column_to_an_old_database(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    old = sqlite3.connect(db)
+    old.execute(
+        "CREATE TABLE jobs (url TEXT PRIMARY KEY, series TEXT NOT NULL DEFAULT '', state TEXT NOT NULL, "
+        "attempts INTEGER NOT NULL DEFAULT 0, wiki_url TEXT NOT NULL DEFAULT '', "
+        "error TEXT NOT NULL DEFAULT '', not_before REAL NOT NULL DEFAULT 0, "
+        "created REAL NOT NULL, updated REAL NOT NULL)"
+    )
+    old.execute("INSERT INTO jobs (url, state, created, updated) VALUES (?, 'done', 0, 0)", (A,))
+    old.commit()
+    old.close()
+    s = State(db)
+    assert s.get(A).passcode == ""
+    assert s.set_passcode(A, "x") is True and s.set_passcode(A, "x") is False

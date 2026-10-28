@@ -14,12 +14,18 @@ adopt() moves each such line into the queue table, which the poller owns:
 Any table with a Status column counts as the queue; Recording is whichever
 cell holds a Zoom link, and Series is optional. The poller fills Status in as
 it goes. Typing `retry` into it asks for a re-run.
+
+A pasted line may carry the recording's passcode as `passcode: <code>`
+anywhere on it. adopt() takes it out, so it isn't copied into the table, and
+returns it to the caller.
 """
 
 import re
 from dataclasses import dataclass
 
 ZOOM = re.compile(r"https://[\w.-]*zoom\.us/rec/(?:share|play)/[^\s)\]|>]+")
+# `passcode: X` or `password: X`, any case. The code is everything up to the next space.
+PASSCODE = re.compile(r"\bpass(?:code|word)\s*[:=]\s*(\S+)", re.IGNORECASE)
 WANTS_RUN = {"", "retry"}
 QUEUE_HEADER = "| Recording | Series | Status |\n|---|---|---|\n"
 # What's left of a pasted line once its links are gone: list markers and separators.
@@ -102,18 +108,25 @@ def _series(line: str) -> str:
     return rest.replace("|", "\\|").strip()
 
 
-def adopt(text: str) -> tuple[str, list[str]]:
+def _passcode(raw: str) -> str:
+    """Undoes Outline's markdown escaping (`a\\_b`) and drops quotes or backticks."""
+    return re.sub(r"\\(.)", r"\1", raw).strip("`'\"")
+
+
+def adopt(text: str) -> tuple[str, dict[str, str]]:
     """Moves lines with Zoom links outside the queue table into it.
 
-    Returns the new text and the adopted urls. Links already queued are just
-    removed from the list. The table is appended to the doc if it's missing.
+    Returns the new text and {url: passcode} for every link taken from a pasted
+    line (passcode "" if none). Links already queued are just removed from the
+    list, but still returned, so a re-pasted link can bring its passcode. The
+    table is appended to the doc if it's missing.
     """
     lines = text.splitlines(keepends=True)
     bare = [ln.rstrip("\r\n") for ln in lines]
     tables = list(_tables(bare))
     in_table = {j for _, rows, _ in tables for j, _ in rows}
     queued = {r.url for r in parse(text)}
-    new_rows, drop, adopted = [], set(), []
+    new_rows, drop, adopted = [], set(), {}
     fenced = False
     for j, line in enumerate(bare):
         if line.lstrip().startswith("```"):
@@ -124,15 +137,16 @@ def adopt(text: str) -> tuple[str, list[str]]:
         if not urls:
             continue
         drop.add(j)
-        series = _series(line)
+        passcode = _passcode(m.group(1)) if (m := PASSCODE.search(line)) else ""
+        series = _series(PASSCODE.sub("", line))
         for url in urls:
+            adopted[url] = passcode
             if url in queued:
                 continue
             queued.add(url)
-            adopted.append(url)
             new_rows.append(f"| {url} | {series} | |\n")
     if not drop:
-        return text, []
+        return text, {}
     nl = "\r\n" if "\r\n" in text else "\n"
     rows = "".join(new_rows).replace("\n", nl)
     out = [ln for j, ln in enumerate(lines) if j not in drop]
