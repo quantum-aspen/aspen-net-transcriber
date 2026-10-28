@@ -1,3 +1,4 @@
+import json
 import time
 from datetime import datetime
 
@@ -247,3 +248,24 @@ def test_remote_asr_defaults_to_the_lumen_key(tmp_path, monkeypatch):
     assert pipeline._asr_env(c)["TRANSCRIBE_API_KEY"] == "lu"
     monkeypatch.setenv("TRANSCRIBE_API_KEY", "own")
     assert "TRANSCRIBE_API_KEY" not in pipeline._asr_env(c)  # its own key wins via the inherited env
+
+
+def test_write_team_keeps_names_and_ids_only(cfg, tmp_path, monkeypatch):
+    users = [
+        {"id": "2", "name": "Krister Shalm", "email": "k@x"},
+        {"id": "1", "name": "Gina Lorenz", "email": "g@x"},
+    ]
+    monkeypatch.setattr(pipeline.Outline, "users", lambda self: users)
+    pipeline.write_team(cfg, tmp_path)
+    assert json.loads((tmp_path / "team.json").read_text()) == [
+        {"name": "Gina Lorenz", "id": "1"}, {"name": "Krister Shalm", "id": "2"},
+    ]  # fmt: skip
+
+
+def test_write_team_is_best_effort(cfg, tmp_path, monkeypatch):
+    def down(self):
+        raise pipeline.OutlineError("users.list: URLError")
+
+    monkeypatch.setattr(pipeline.Outline, "users", down)
+    pipeline.write_team(cfg, tmp_path)
+    assert not (tmp_path / "team.json").exists()

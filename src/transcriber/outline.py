@@ -1,4 +1,4 @@
-"""The two Outline API calls the poller needs. The agent talks to Outline through its MCP server."""
+"""The few Outline API calls the service makes itself. The agent talks to Outline through its MCP server."""
 
 import json
 import urllib.error
@@ -40,3 +40,13 @@ class Outline:
 
     def update_text(self, doc_id: str, text: str) -> dict:
         return self._post("documents.update", {"id": doc_id, "text": text})
+
+    def users(self) -> list[dict]:
+        """Every active user: the team roster."""
+        out, offset = [], 0
+        while page := self._post("users.list", {"limit": 100, "offset": offset}):
+            out += page
+            offset += len(page)
+            if len(page) < 100:
+                break
+        return out

@@ -75,6 +75,12 @@ def drop_bundled_skills() -> None:
     )  # fmt: skip
 
 
+# Only what the summary needs. Meeting content (speech, chat, screen text) is
+# untrusted input to an agent running with --yolo, so no web, browser, computer
+# use, delegation, cron, connectors or memory. MCP servers (Outline) come from config.yaml.
+TOOLSETS = "terminal,file,vision,skills,todo"
+
+
 def run(cfg: Config, prompt: Path, workdir: Path, log: Path) -> int:
     """One unattended agent run. Its output goes to log; returns the exit code."""
     cmd = [
@@ -82,6 +88,7 @@ def run(cfg: Config, prompt: Path, workdir: Path, log: Path) -> int:
         "--query-file", str(prompt),
         "--quiet",
         "--skills", "local-meeting-transcript",
+        "--toolsets", TOOLSETS,
         "--max-turns", str(cfg.agent_max_turns),
         "--run-budget", str(cfg.agent_budget),
         "--yolo",  # no one is there to approve tool calls

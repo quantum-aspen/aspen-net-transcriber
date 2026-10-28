@@ -18,6 +18,7 @@ from string import Template
 
 from . import hermes, proc
 from .config import Config
+from .outline import Outline, OutlineError
 
 log = logging.getLogger(__name__)
 MEDIA = ("meeting.mp4", "share.mp4", "meeting.wav")
@@ -101,9 +102,24 @@ def prompt(cfg: Config, url: str, series: str, wd: Path) -> Path:
     return p
 
 
+def write_team(cfg: Config, wd: Path) -> None:
+    """The wiki's users are the team roster the skill resolves names against.
+    Names and ids only. Best effort: without it the agent falls back to the MCP."""
+    if not cfg.outline_api_key.get_secret_value():
+        return
+    try:
+        users = Outline(cfg.outline_url, cfg.outline_api_key).users()
+    except OutlineError as e:
+        log.warning("[%s] couldn't fetch the team roster: %s", wd.name, e)
+        return
+    team = sorted(({"name": u["name"], "id": u["id"]} for u in users), key=lambda u: u["name"])
+    (wd / "team.json").write_text(json.dumps(team, indent=1) + "\n")
+
+
 def summarise(cfg: Config, url: str, series: str, wd: Path) -> dict:
     """Runs the agent and returns its result.json."""
     (wd / "result.json").unlink(missing_ok=True)
+    write_team(cfg, wd)
     rc = hermes.run(cfg, prompt(cfg, url, series, wd), wd, wd / "agent.log")
     try:
         result = json.loads((wd / "result.json").read_text())
