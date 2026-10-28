@@ -45,6 +45,11 @@ RUN uv sync --locked --no-dev --no-editable
 COPY --from=skills-repo /skills /opt/transcriber/skills
 RUN chmod -R a+rX,go-w /opt/transcriber/skills
 
+# work/ and hf/ can be separate volumes (so backups can leave them out). The
+# entrypoint only fixes /opt/data itself, and a new volume takes its owner from
+# the image path it's mounted on, so create them here owned by hermes.
+RUN install -d -o hermes -g hermes /opt/data/transcriber /opt/data/transcriber/work /opt/data/transcriber/hf
+
 # Our venv after Hermes' shim, ahead of Hermes' venv: `transcriber`, `yt-dlp`
 # and python3 resolve to ours; `hermes` stays Hermes'.
 ENV PATH=/opt/hermes/bin:/opt/transcriber/.venv/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \

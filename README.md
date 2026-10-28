@@ -63,6 +63,9 @@ State lives in the `/opt/data` volume:
 | `transcriber/hf/` | the whisper model (~1.6 GB, downloaded on first run; safe to delete) |
 | everything else | Hermes' own home (config, sessions, logs) |
 
+`work/` and `hf/` can be mounted as their own volumes so backups can leave them out. The
+image creates both owned by the `hermes` user, so new volumes there are writable.
+
 Logs go to stdout. Output from the pipeline steps and the agent is included, tagged
 `[<job id>]` (the job's work-dir name). The same output is also kept in the job's
 `pipeline.log` and `agent.log` until the job finishes. `RUN_HOURS` uses the container's
