@@ -14,6 +14,11 @@ import yaml
 from . import proc
 from .config import Config
 
+OUTLINE_READ_TOOLS = (
+    "fetch", "list_collections", "list_collection_documents", "list_documents",
+    "list_templates", "list_users", "list_comments",
+)  # fmt: skip
+
 
 def settings(cfg: Config) -> dict:
     s = {
@@ -35,14 +40,17 @@ def settings(cfg: Config) -> dict:
             "model": cfg.lumen_vision_model,
             "key_env": "LUMEN_API_KEY",
         }
-    if not cfg.dry_run:
-        s["mcp_servers"] = {
-            "outline": {
-                # Hermes resolves ${VAR} at connect time, so the key stays in the env.
-                "url": f"{cfg.outline_url}/mcp",
-                "headers": {"Authorization": "Bearer ${OUTLINE_API_KEY}"},
-            }
+    if cfg.outline_api_key.get_secret_value():
+        outline = {
+            # Hermes resolves ${VAR} at connect time, so the key stays in the env.
+            "url": f"{cfg.outline_url}/mcp",
+            "headers": {"Authorization": "Bearer ${OUTLINE_API_KEY}"},
         }
+        if cfg.dry_run:
+            # Reads only: the agent still loads the template, roster and series page,
+            # so a dry run exercises everything but publishing.
+            outline["tools"] = {"include": list(OUTLINE_READ_TOOLS)}
+        s["mcp_servers"] = {"outline": outline}
     return s
 
 
@@ -57,9 +65,15 @@ def write_config(cfg: Config, home: Path | None = None) -> Path:
     home = home or Path(os.environ.get("HERMES_HOME", "/opt/data"))
     path = home / "config.yaml"
     current = yaml.safe_load(path.read_text()) if path.exists() else None
-    merged = _merge(current or {}, settings(cfg))
-    if cfg.dry_run:
-        merged.get("mcp_servers", {}).pop("outline", None)
+    ours = settings(cfg)
+    merged = _merge(current or {}, ours)
+    # Replace, don't merge, our MCP entry: a dry run's read-only filter mustn't
+    # survive into a real run, and no key means no server.
+    servers = merged.setdefault("mcp_servers", {})
+    if "outline" in ours.get("mcp_servers", {}):
+        servers["outline"] = ours["mcp_servers"]["outline"]
+    else:
+        servers.pop("outline", None)
     home.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(merged, sort_keys=False))
     return path

@@ -91,8 +91,11 @@ def prompt(cfg: Config, url: str, series: str, wd: Path) -> Path:
         skill=cfg.skill_dir,
         out=cfg.meetings_dir,
         publish=(
-            "DRY RUN: do not create, update or upload anything on the wiki. Write the finished summary "
-            "body to `summary.md` in the work directory, and put that file's path in `wiki_url`."
+            "DRY RUN: you can read the wiki (the Outline tools are read-only), but don't create, "
+            "update or upload anything. Load the template and series page as for a real run, write "
+            "the finished summary body to `summary.md` in the work directory, and put that file's "
+            "path in `wiki_url`. If step 1 finds the meeting already on the wiki, carry on anyway: "
+            "the dry run is being compared against it. Don't read that existing summary."
             if cfg.dry_run
             else "Publish the summary to the wiki as the skill's ASPEN-NET output reference describes."
         ),

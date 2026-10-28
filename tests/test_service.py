@@ -269,3 +269,17 @@ def test_write_team_is_best_effort(cfg, tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline.Outline, "users", down)
     pipeline.write_team(cfg, tmp_path)
     assert not (tmp_path / "team.json").exists()
+
+
+def test_dry_run_gets_read_only_outline_and_it_doesnt_leak(tmp_path):
+    home = tmp_path / "hermes"
+    base = {"OUTLINE_API_KEY": "k", "LUMEN_MODEL": "m", "TRANSCRIBER_DATA": str(tmp_path / "d")}
+    dry = yaml.safe_load(hermes.write_config(Config.from_env(base | {"DRY_RUN": "1"}), home).read_text())
+    assert dry["mcp_servers"]["outline"]["tools"]["include"] == list(hermes.OUTLINE_READ_TOOLS)
+    assert not any(t.startswith(("create", "update", "delete", "move")) for t in hermes.OUTLINE_READ_TOOLS)
+    real = yaml.safe_load(hermes.write_config(Config.from_env(base), home).read_text())
+    assert "tools" not in real["mcp_servers"]["outline"]
+    nokey = yaml.safe_load(
+        hermes.write_config(Config.from_env(base | {"OUTLINE_API_KEY": ""}), home).read_text()
+    )
+    assert "outline" not in nokey["mcp_servers"]
